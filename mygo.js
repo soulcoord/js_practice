@@ -27,7 +27,7 @@ const db = new sqlite3.Database(path.join(__dirname, "bot_data.db"), sqlite3.OPE
     }
 });
 
-// 建立資料表，添加 'id' 欄位
+// 建立資料表，添加 id 欄位
 db.serialize(() => {
     db.run(`
         CREATE TABLE IF NOT EXISTS favorites (

@@ -9,7 +9,6 @@ const path = require("path");
 const app = express();
 const db = new sqlite3.Database(path.join(__dirname, "bot_data.db"));
 
-// Discord OAuth 2.0 設定
 passport.use(
     new Strategy(
         {
@@ -116,7 +115,7 @@ app.delete("/api/favorites/:id", (req, res) => {
             return res.status(404).json({ error: "Item not found" });
         }
 
-        // 使用 'id' 進行刪除操作
+        // 使用 id 進行刪除操作
         db.run("DELETE FROM favorites WHERE user_id = ? AND id = ?", [userId, favoriteId], function (err) {
             if (err) {
                 console.error("Error during deletion: ", err);
