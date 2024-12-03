@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .card { border: 1px solid #ccc; padding: 15px; margin: 10px; border-radius: 5px; }
+        img { max-width: 100%; height: auto; }
+    </style>
+</head>
+<body>
+    <h1>歡迎，您的收藏與歷史紀錄</h1>
+    <button onclick="logout()">登出</button>
+    <div id="favorites">
+        <h2>收藏</h2>
+        <div id="favorites-list"></div>
+    </div>
+    <div id="history">
+        <h2>歷史紀錄</h2>
+        <div id="history-list"></div>
+    </div>
+
+    <script>
+        async function fetchData(endpoint, containerId) {
+            try {
+                const response = await fetch(endpoint);
+                if (!response.ok) {
+                    throw new Error("請先登入！");
+                }
+                const data = await response.json();
+                const container = document.getElementById(containerId);
+                container.innerHTML = data
+                    .map(
+                        (item) => `
+                        <div class="card">
+                            <h3>${item.label}</h3>
+                            <p>${item.description}</p>
+                            <img src="${item.image_url}" alt="${item.label}" />
+                        </div>
+                    `
+                    )
+                    .join("");
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        function logout() {
+            window.location.href = "/logout";
+        }
+
+        fetchData("/api/favorites", "favorites-list");
+        fetchData("/api/history", "history-list");
+    </script>
+</body>
+</html>
