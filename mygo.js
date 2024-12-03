@@ -27,10 +27,11 @@ const db = new sqlite3.Database(path.join(__dirname, "bot_data.db"), sqlite3.OPE
     }
 });
 
-// 建立資料表
+// 建立資料表，添加 'id' 欄位
 db.serialize(() => {
     db.run(`
         CREATE TABLE IF NOT EXISTS favorites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT,
             label TEXT,
             description TEXT,
@@ -43,6 +44,7 @@ db.serialize(() => {
     });
     db.run(`
         CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT,
             label TEXT,
             description TEXT,
@@ -113,6 +115,20 @@ client.on("interactionCreate", async (interaction) => {
                     .setColor("Blue")
             );
 
+            // 將第一個結果寫入歷史紀錄
+            const firstResult = results[0];
+            db.run(
+                `INSERT INTO history (user_id, label, description, image_url) VALUES (?, ?, ?, ?)`,
+                [interaction.user.id, firstResult.text, `集數: ${firstResult.episode}, 帶數: ${firstResult.frame}`, `https://cdn.anon-tokyo.com/thumb/thumb/${firstResult.episode}__${firstResult.frame}.jpg`],
+                function(err) { // 使用 function 以獲取自動生成的 id
+                    if (err) {
+                        console.error(`寫入歷史記錄失敗: ${err.message}`);
+                    } else {
+                        console.log(`歷史記錄新增，ID: ${this.lastID}`);
+                    }
+                }
+            );
+
             let currentPage = 0;
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId("prev").setLabel("上一頁").setStyle(ButtonStyle.Primary).setDisabled(true),
@@ -126,10 +142,10 @@ client.on("interactionCreate", async (interaction) => {
                 fetchReply: true
             });
 
-            const collector = message.createMessageComponentCollector({ 
-                filter: (i) => i.user.id === interaction.user.id, 
-                componentType: ComponentType.Button, 
-                time: 180000 
+            const collector = message.createMessageComponentCollector({
+                filter: (i) => i.user.id === interaction.user.id,
+                componentType: ComponentType.Button,
+                time: 180000
             });
 
             collector.on("collect", async (btnInteraction) => {
@@ -157,8 +173,13 @@ client.on("interactionCreate", async (interaction) => {
 
     // 收藏指令
     if (interaction.commandName === "收藏") {
-        db.all("SELECT label, description, image_url FROM favorites WHERE user_id = ?", [interaction.user.id], async (err, rows) => {
-            if (err || rows.length === 0) {
+        db.all("SELECT id, label, description, image_url FROM favorites WHERE user_id = ?", [interaction.user.id], async (err, rows) => {
+            if (err) {
+                console.error(`獲取收藏失敗: ${err.message}`);
+                await interaction.reply({ content: "獲取收藏時發生錯誤。", ephemeral: true });
+                return;
+            }
+            if (rows.length === 0) {
                 await interaction.reply({ content: "您目前沒有收藏。", ephemeral: true });
                 return;
             }
@@ -206,51 +227,64 @@ client.on("interactionCreate", async (interaction) => {
 
     // 歷史瀏覽指令
     if (interaction.commandName === "歷史瀏覽") {
-        db.all("SELECT label, description, image_url FROM history WHERE user_id = ?", [interaction.user.id], async (err, rows) => {
-            if (err || rows.length === 0) {
-                await interaction.reply({ content: "您目前沒有歷史瀏覽記錄。", ephemeral: true });
-                return;
+        db.all(
+            "SELECT id, label, description, image_url FROM history WHERE user_id = ? ORDER BY ROWID DESC",
+            [interaction.user.id],
+            async (err, rows) => {
+                if (err) {
+                    console.error(`獲取歷史紀錄失敗: ${err.message}`);
+                    await interaction.reply({ content: "獲取歷史紀錄時發生錯誤。", ephemeral: true });
+                    return;
+                }
+                if (rows.length === 0) {
+                    await interaction.reply({ content: "您目前沒有歷史瀏覽記錄。", ephemeral: true });
+                    return;
+                }
+
+                const embeds = rows.map((row, idx) =>
+                    new EmbedBuilder()
+                        .setTitle(row.label)
+                        .setDescription(row.description)
+                        .setImage(row.image_url)
+                        .setColor("Blue")
+                );
+
+                let currentPage = 0;
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId("prev").setLabel("上一頁").setStyle(ButtonStyle.Primary).setDisabled(true),
+                    new ButtonBuilder().setCustomId("next").setLabel("下一頁").setStyle(ButtonStyle.Primary).setDisabled(embeds.length <= 1)
+                );
+
+                const message = await interaction.reply({
+                    embeds: [embeds[currentPage]],
+                    components: [row],
+                    ephemeral: true,
+                    fetchReply: true
+                });
+
+                const collector = message.createMessageComponentCollector({
+                    filter: (i) => i.user.id === interaction.user.id,
+                    componentType: ComponentType.Button,
+                    time: 180000
+                });
+
+                collector.on("collect", async (btnInteraction) => {
+                    await btnInteraction.deferUpdate();
+                    if (btnInteraction.customId === "prev") currentPage--;
+                    else if (btnInteraction.customId === "next") currentPage++;
+
+                    row.components[0].setDisabled(currentPage === 0);
+                    row.components[1].setDisabled(currentPage === embeds.length - 1);
+
+                    await btnInteraction.editReply({ embeds: [embeds[currentPage]], components: [row] });
+                });
+
+                collector.on("end", async () => {
+                    row.components.forEach((btn) => btn.setDisabled(true));
+                    await message.edit({ components: [row] });
+                });
             }
-
-            const embeds = rows.map((row) =>
-                new EmbedBuilder().setTitle(row.label).setDescription(row.description).setImage(row.image_url).setColor("Blue")
-            );
-
-            let currentPage = 0;
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId("prev").setLabel("上一頁").setStyle(ButtonStyle.Primary).setDisabled(true),
-                new ButtonBuilder().setCustomId("next").setLabel("下一頁").setStyle(ButtonStyle.Primary).setDisabled(embeds.length <= 1)
-            );
-
-            const message = await interaction.reply({
-                embeds: [embeds[currentPage]],
-                components: [row],
-                ephemeral: true,
-                fetchReply: true
-            });
-
-            const collector = message.createMessageComponentCollector({ 
-                filter: (i) => i.user.id === interaction.user.id, 
-                componentType: ComponentType.Button, 
-                time: 180000 
-            });
-
-            collector.on("collect", async (btnInteraction) => {
-                await btnInteraction.deferUpdate();
-                if (btnInteraction.customId === "prev") currentPage--;
-                else if (btnInteraction.customId === "next") currentPage++;
-
-                row.components[0].setDisabled(currentPage === 0);
-                row.components[1].setDisabled(currentPage === embeds.length - 1);
-
-                await btnInteraction.editReply({ embeds: [embeds[currentPage]], components: [row] });
-            });
-
-            collector.on("end", async () => {
-                row.components.forEach((btn) => btn.setDisabled(true));
-                await message.edit({ components: [row] });
-            });
-        });
+        );
     }
 });
 
